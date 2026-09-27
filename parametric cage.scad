@@ -55,8 +55,20 @@ cage_bar_thickness=4; // [4:8]
 // Number of vertical bars on the cage
 cage_bar_count=8;
 
+// Replace the bars with a solid wall along the same shape
+solid_wall = 0; // [0: Bars, 1: Solid wall]
+
+// Thickness of the solid wall, measured outward from the cage diameter
+solid_wall_thickness = 2; // [1.2:0.1:8]
+
 // Width of the slit at the front opening
 slit_width=12; // [0:40]
+
+// Solid wall: where the slit starts, in degrees over the dome from its base on the lock side (90 = the tip)
+slit_start = 0; // [0:1:180]
+
+// Solid wall: where the slit ends, in degrees over the dome from its base on the lock side (180 = base on the far side)
+slit_end = 180; // [0:1:180]
 
 // X-axis coordinate of the bend point (the center of the arc the cage bends around)
 bend_point_x=50; // [0:0.1:200]
@@ -248,14 +260,143 @@ module rounded_cube(size, radius, center=false) {
 }
 
 module cage() {
-  if (flat_top) {
-    flat_cap();
+  if (flat_top || solid_wall) {
+    // Closed shapes: keep the lock block and the ring out of the cavity, flush with the inner surface
+    difference() {
+      union() {
+        if (flat_top) {
+          // The flat cap's wall is upright but the lock pieces slide along a tilted plane:
+          // trim the wall back to that plane so the base part's lock pieces clear it
+          difference() {
+            flat_cap();
+            lock_slide_clearance();
+          }
+        } else {
+          cage_solid_wall();
+          // Cage ring, sheared with the tilt like the wall: inner surface flush with the wall,
+          // outer edge where the barred cage's ring has it. At a steep tilt it would reach past
+          // the plane the lock pieces slide on, so it is trimmed there too
+          difference() {
+            skewxz(tan(tilt)) profile_torus(R1+(r1+r3)/2, r1+r3, 2*r3, base_ring_roundness*r2/(r1+r3)*2);
+            lock_slide_clearance();
+          }
+        }
+        cage_lock();
+      }
+      cage_cavity();
+    }
   } else {
     cage_bar_segments(); // The bars
     glans_cap(); // The cap
     profile_torus(R1+r1, 2*r3, 2*r3, base_ring_roundness*r2/r3);  // Cage base ring, same edge radius as the base ring
+    cage_lock(); // The part where the lock goes
   }
-  cage_lock(); // The part where the lock goes
+}
+
+// Everything past the plane the base part's lock pieces slide on (the outer face of the slab)
+module lock_slide_clearance() {
+  dz(-r3) skewxz(tan(tilt)) translate([-100, -mount_length/2-1, -50]) cube([100-(R1+r3+mount_width/2), mount_length+2, 150]);
+}
+
+// Inside of the flat cap / solid wall, extended below the base so nothing is left hanging into it
+module cage_cavity() {
+  if (flat_top) {
+    wall_h = max(flat_wall_height, 2*r3);
+    dz(-r3-1) cylinder(r=R1+r1-r3, h=wall_h-flat_plate_thickness+1);
+  } else {
+    cage_volume(R1, open_bottom=true);
+  }
+}
+
+// Solid wall along the path of the bars: straight segment, bend around P, and a domed cap with the slit.
+// The inner surface is at the cage diameter, the wall grows outward
+module cage_solid_wall() {
+  t = solid_wall_thickness;
+  difference() {
+    cage_volume(R1+t);
+    cage_volume(R1, open_bottom=true);
+    if (slit_width > 0) translate(R) ry(Phi+tilt) slit_cutter(R1+t/2, slit_width/2+t/2, t, slit_start, slit_end);
+  }
+  // Rounded lip along the slit edge; the clear opening is slit_width
+  if (slit_width > 0) translate(R) ry(Phi+tilt) slit_lip(R1+t/2, slit_width/2+t/2, t, slit_start, slit_end);
+}
+
+// Slit geometry on the dome (cap frame: dome toward +Z, slit running along X, the lock side toward -X).
+// Positions along the slit are angles phi in the XZ plane from +X: the dome's base on the lock side
+// is phi=180, the tip is phi=90, the base on the far side is phi=0.
+// The lip's center line lies on the wall's mid-sphere (radius Rm):
+//  - each side is the circle where the plane y=+-c cuts the sphere (radius rho around the Y axis);
+//  - each end is a half circle of radius c around rho*[cos(phi), 0, sin(phi)], tangent to both sides.
+// The ends stop t/2 above the dome's base, so the lip stays on the dome.
+function slit_c(Rm, c, t) = min(c, Rm*sin(80 - asin(t/2/Rm)));
+function slit_th(Rm, c, t) = asin(slit_c(Rm, c, t)/Rm) + asin(t/2/Rm);
+// [phi at the far-side end, phi at the lock-side end] for slit_start/slit_end (degrees from the lock-side base)
+function slit_span(Rm, c, t, start, end) = let(
+  th = slit_th(Rm, c, t),
+  lo = min(max(180 - max(start, end), th), 180 - th),
+  hi = min(max(180 - min(start, end), th), 180 - th)
+) [lo, hi];
+
+// Cone from the dome center over the slit outline, so the cut faces are normal to the wall
+module slit_cutter(Rm, c0, t, start, end) {
+  c = slit_c(Rm, c0, t);
+  rho = sqrt(Rm*Rm - c*c);
+  span = slit_span(Rm, c0, t, start, end);
+  L = 2*(Rm + t);
+  // Sides: |y| < c/rho * (distance from the Y axis), between the ends
+  if (span[1] - span[0] > 0.01)
+    rx(90) rz(span[0]) rotate_extrude(angle=span[1]-span[0]) polygon([[0, 0], [L, c/rho*L], [L, -c/rho*L]]);
+  // Ends: cones around the end centers
+  for (phi = span) ry(90-phi) cylinder(r1=0, r2=L*c/rho, h=L);
+}
+
+module slit_lip(Rm, c0, t, start, end) {
+  c = slit_c(Rm, c0, t);
+  rho = sqrt(Rm*Rm - c*c);
+  span = slit_span(Rm, c0, t, start, end);
+  tube_fn = 48; // multiple of 4, so the side and end tubes meet vertex to vertex
+  // Sides
+  if (span[1] - span[0] > 0.01)
+    for (y = [-c, c]) dy(y) rx(90) rz(span[0]) rotate_extrude(angle=span[1]-span[0]) dx(rho) circle(t/2, $fn=tube_fn);
+  // Ends: half rings from +Y around the outside of the slit to -Y (sgn=-1 at the far-side end, +1 at the lock side)
+  for (k = [0, 1]) let(
+    phi = span[k],
+    sgn = k == 0 ? -1 : 1,
+    n = [cos(phi), 0, sin(phi)],
+    d = sgn*[-sin(phi), 0, cos(phi)],
+    e = sgn*n
+  ) multmatrix([[0, d.x, e.x, rho*n.x], [1, d.y, e.y, 0], [0, d.z, e.z, rho*n.z], [0, 0, 0, 1]])
+      rotate_extrude(angle=180) dx(c) circle(t/2, $fn=tube_fn);
+}
+
+// Solid volume of the cage with cross-section radius r: the straight segment, the bend and a hemisphere on top
+module cage_volume(r, open_bottom=false) {
+  bend_steps = max(1, ceil(Phi/2));
+  // Straight segment, from the base ring to Q
+  hull() {
+    cage_section(r);
+    translate(Q) ry(tilt) cage_section(r);
+  }
+  // Below the base, continue along the tilt (same shear as the ring), deep enough to clear the ring
+  if (open_bottom) hull() {
+    cage_section(r);
+    translate([-(r3+1)*tan(tilt), 0, -(r3+1)]) cage_section(r);
+  }
+  // Bend around P, from Q to R
+  if (Phi > 0) for (i = [0:bend_steps-1]) hull() {
+    translate(P) ry(i*Phi/bend_steps) translate(Q-P) ry(tilt) cage_section(r);
+    translate(P) ry((i+1)*Phi/bend_steps) translate(Q-P) ry(tilt) cage_section(r);
+  }
+  // Dome
+  translate(R) ry(Phi+tilt) intersection() {
+    sphere(r);
+    translate([-r, -r, 0]) cube([2*r, 2*r, r]);
+  }
+}
+
+// A thin disc of the cage cross-section, in the XY plane
+module cage_section(r) {
+  cylinder(r=r, h=0.01, center=true);
 }
 
 // Flat cap: the cage ring grown upward into a wall, closed by a plate with holes
@@ -329,8 +470,8 @@ module glans_cap() {
 }
 
 module cage_lock() {
-  // Create the solid arc that interfaces with the mating parts (the flat cap's wall does this job itself)
-  if (!flat_top) mount_arc();
+  // Create the solid arc that interfaces with the mating parts (a flat cap or a solid wall does this job itself)
+  if (!flat_top && !solid_wall) mount_arc();
   // Create the flat plane on which the mating parts slide
   mount_flat();
   // Create the cage's piece of the lock
@@ -406,10 +547,14 @@ module mount_arc(arcLength=60) {
 }
 
 module mount_flat() {
+  closed = flat_top || solid_wall;
+  // On a closed shape the slab reaches in past the wall at its ends, so its sides run straight into the wall;
+  // cage() then trims it flush with the inner surface
+  inner = closed ? sqrt(max(sq(R1) - sq(mount_length/2), 0)) : R1+r3-mount_width/2;
   dz(-r3) skewxz(tan(tilt)) difference() {
-    translate([-R1-r3-mount_width/2, -mount_length/2, 0]) rounded_cube([mount_width, mount_length, mount_height*cos(tilt)+r3], rounding);
-    // For the full cage, keep the block outside the cage ring; the flat cap's block is a plain slab joined to the wall
-    if (!flat_top) cylinder(r=R1+r3, h=100);
+    translate([-R1-r3-mount_width/2, -mount_length/2, 0]) rounded_cube([R1+r3+mount_width/2-inner, mount_length, mount_height*cos(tilt)+r3], rounding);
+    // For the barred cage, keep the block outside the cage ring
+    if (!closed) cylinder(r=R1+r3, h=100);
   }
 }
 

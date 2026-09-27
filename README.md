@@ -16,6 +16,7 @@ This is a major overhaul of [Dani119's parametric chastity cage](https://www.thi
 ## What's new in this fork
 
 - **Custom lock.** The cage is built around a small cylinder lock modelled in Fusion 360 instead of the Holy-Trainer-style "stealth" lock.
+- **Solid wall.** The bars can be replaced by a solid wall of the same shape.
 - **Flat top.** You can build a flat cap instead of the barred cage: a wall ring closed by a plate with holes.
 - **Printable base rings.** The base ring and the cage ring can have a square or rounded-square cross-section instead of a round one.
 - **Bridge layer.** An optional thin layer under the flat plate lets the slicer bridge it cleanly.
@@ -50,6 +51,14 @@ The key goes into the shell end. The lock slides in cam-first from the key side.
 - `lock_clockwise` flips the turning direction. The default (clockwise) swings the cam toward the cage, where there is plenty of material. Turning the other way breaks through the outer wall of the case, so rework the case if your lock turns the other way.
 - `show_lock` draws the lock in place (preview only), in the unlocked or locked position.
 
+## Solid wall
+
+![Cage with a solid wall](images/solid_wall.png)
+
+With `solid_wall = 1`, the bars and the glans cap are replaced by a solid wall along the same path: the straight segment, the bend and a domed cap. The front slit (`slit_width`) is kept, with rounded ends and a rounded lip all around, like the bars. `slit_start` and `slit_end` set how far it runs, in degrees over the dome from its base on the lock side (90 = the tip, 180 = the base on the far side). The inner surface stays at `cage_diameter`, and the wall grows outward by `solid_wall_thickness`.
+
+The cage ring and the lock block follow the wall: the ring leans with `tilt` and is flush with the inner surface, and the lock block runs straight into the wall with nothing sticking into the cavity.
+
 ## Flat top
 
 ![Flat top variant](images/flat_top.png)
@@ -73,7 +82,7 @@ The wavy base ring (`wavy_base = 1`) always stays round. It needs supports eithe
 | Tab | Parameters |
 |---|---|
 | General | `separate_parts`, `flat_top`, `cage_diameter`, `tilt`, `gap` |
-| Cage | `penis_length`, `cage_bar_thickness`, `cage_bar_count`, `slit_width`, `bend_point_x`, `bend_point_z` |
+| Cage | `penis_length`, `cage_bar_thickness`, `cage_bar_count`, `solid_wall`, `solid_wall_thickness`, `slit_width`, `slit_start`, `slit_end`, `bend_point_x`, `bend_point_z` |
 | Flat top | `flat_wall_height`, `flat_plate_thickness`, `flat_center_hole`, `flat_hole_count`, `flat_hole_diameter`, `flat_hole_radius`, `flat_bridge_layer`, `flat_bridge_layer_thickness` |
 | Base ring | `base_ring_diameter`, `base_ring_thickness`, `base_ring_roundness`, `wavy_base`, `wave_angle` |
 | Lock | `lock_key_depth`, `lock_clockwise`, `show_lock` |
