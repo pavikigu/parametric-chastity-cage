@@ -27,33 +27,27 @@ use <torus.scad>
 // Use separate module for computing points along the cage path
 use <vec3math.scad>
 
+/* [General] */
+
 // Render cage and ring separately
-separateParts = 0; // [0: Together, 1: Separate]
+separate_parts = 0; // [0: Together, 1: Separate]
+
+// Cage shape: a full cage with bars, or a flat cap (a wall ring with a flat top plate)
+flat_top = 0; // [0: Cage, 1: Flat]
 
 // Cage diameter
 cage_diameter=35; // [30:40]
 
-// Length of cage from base ring to cage tip
-penis_length=90; // [30:200]
-
-// Base ring diameter
-base_ring_diameter=45; // [30:55]
-
-// Thickness of base ring 
-base_ring_thickness=6; // [6:10]
-
-// Cross-section of the base rings: 0 = square (easier to print), 1 = round (torus). The wavy base ring is always round.
-// Edge radius is base_ring_roundness * base_ring_thickness/2 on both rings; 0.33 matches the lock block's rounding at thickness 6
-base_ring_roundness = 0.33; // [0:0.01:1]
-
-// Add a "wave" to the base ring (contours to the body a little better)
-wavyBase = 0; // [0: Flat, 1: Wavy]
-
-// If the base ring has a wave, set the angle of the wave
-waveAngle = 12; // [0:45]
+// Tilt angle of the cage at the base ring
+tilt=15; // [0:30]
 
 // Gap between the bottom of the cage and the base ring
 gap=10; // [10:20]
+
+/* [Cage] */
+
+// Length of cage from base ring to cage tip
+penis_length=90; // [30:200]
 
 // Thickness of the rings of the cage
 cage_bar_thickness=4; // [4:8]
@@ -64,11 +58,56 @@ cage_bar_count=8;
 // Width of the slit at the front opening
 slit_width=12; // [0:40]
 
-// Tilt angle of the cage at the base ring
-tilt=15; // [0:30]
+// X-axis coordinate of the bend point (the center of the arc the cage bends around)
+bend_point_x=50; // [0:0.1:200]
 
-// If your lock fits too tightly in the casing, add some space around it here
-lock_margin = 0.1; // [0:0.01:1]
+// Z-axis coordinate of the bend point (the center of the arc the cage bends around)
+bend_point_z=15; // [0:0.1:200]
+
+/* [Flat top] */
+
+// Height of the wall of the flat cap, from the bottom of the cage ring to the top of the plate
+flat_wall_height = 9.4; // [4.8:0.1:40]
+
+// Thickness of the top plate
+flat_plate_thickness = 1; // [0.6:0.1:4]
+
+// Diameter of the center hole in the top plate
+flat_center_hole = 6; // [0:0.5:15]
+
+// Number of holes around the center hole
+flat_hole_count = 6; // [0:12]
+
+// Diameter of the holes around the center hole
+flat_hole_diameter = 3; // [1:0.5:8]
+
+// Radius of the circle the holes around the center sit on
+flat_hole_radius = 12; // [3:0.5:16]
+
+// Close the holes with a thin layer on the underside of the plate, so the slicer bridges the plate in one piece; poke it through after printing
+flat_bridge_layer = 1; // [0: No, 1: Yes]
+
+// Thickness of that layer (one or two print layers)
+flat_bridge_layer_thickness = 0.2; // [0.1:0.05:0.6]
+
+/* [Base ring] */
+
+// Base ring diameter
+base_ring_diameter=45; // [30:55]
+
+// Thickness of base ring 
+base_ring_thickness=6; // [6:10]
+
+// Cross-section of the base ring and the cage ring: 0 = square (easier to print), 1 = round. Edge radius = value * base ring thickness/2; 0.33 matches the lock block at thickness 6. The wavy base ring is always round
+base_ring_roundness = 0.33; // [0:0.01:1]
+
+// Add a "wave" to the base ring (contours to the body a little better)
+wavy_base = 0; // [0: Flat, 1: Wavy]
+
+// If the base ring has a wave, set the angle of the wave
+wave_angle = 12; // [0:45]
+
+/* [Lock] */
 
 // How deep the key face of the lock sits below the surface of the case
 lock_key_depth = 1.5; // [0:0.1:4]
@@ -79,14 +118,13 @@ lock_clockwise = 1; // [1: Clockwise, 0: Counterclockwise]
 // Show the lock in place (preview only)
 show_lock = 0; // [0: No, 1: Unlocked, 2: Locked]
 
+/* [Clearances] */
+
+// If your lock fits too tightly in the casing, add some space around it here
+lock_margin = 0.1; // [0:0.01:1]
+
 // If the two parts slide too stiffly, add some space here
 part_margin = 0.2; // [0:0.01:1]
-
-// X-axis coordinate of the bend point (the center of the arc the cage bends around)
-bend_point_x=50; // [0:0.1:200]
-
-// Z-axis coordinate of the bend point (the center of the arc the cage bends around)
-bend_point_z=15; // [0:0.1:200]
 
 /* [Hidden] */
 
@@ -180,7 +218,7 @@ module make() {
 }
 
 module make_base() {
-  baseOrigin = separateParts ? [-base_ring_diameter-cage_diameter, 0, gap] : [0, 0, 0];
+  baseOrigin = separate_parts ? [-base_ring_diameter-cage_diameter, 0, gap] : [0, 0, 0];
   translate(baseOrigin) {
     base_ring();
     lock_dovetail_outer();
@@ -210,10 +248,31 @@ module rounded_cube(size, radius, center=false) {
 }
 
 module cage() {
-  cage_bar_segments(); // The bars
-  glans_cap(); // The cap
-  profile_torus(R1+r1, r3, base_ring_roundness*r2/r3);  // Cage base ring, same edge radius as the base ring
+  if (flat_top) {
+    flat_cap();
+  } else {
+    cage_bar_segments(); // The bars
+    glans_cap(); // The cap
+    profile_torus(R1+r1, 2*r3, 2*r3, base_ring_roundness*r2/r3);  // Cage base ring, same edge radius as the base ring
+  }
   cage_lock(); // The part where the lock goes
+}
+
+// Flat cap: the cage ring grown upward into a wall, closed by a plate with holes
+module flat_cap() {
+  wall_h = max(flat_wall_height, 2*r3);
+  // Wall: the cage ring with a rectangular section, same edge radius as the base ring
+  dz(-r3+wall_h/2) profile_torus(R1+r1, 2*r3, wall_h, base_ring_roundness*r2/r3);
+  // Top plate, flush with the top of the wall
+  dz(-r3+wall_h-flat_plate_thickness) difference() {
+    cylinder(r=R1+r1, h=flat_plate_thickness);
+    // Holes start above the bridge layer when it is on, otherwise they go right through
+    hole_start = flat_bridge_layer ? flat_bridge_layer_thickness : -1;
+    dz(hole_start) {
+      if (flat_center_hole > 0) cylinder(d=flat_center_hole, h=flat_plate_thickness-hole_start+1);
+      if (flat_hole_count > 0) for (i = [0:flat_hole_count-1]) rz(i*360/flat_hole_count) dx(flat_hole_radius) cylinder(d=flat_hole_diameter, h=flat_plate_thickness-hole_start+1);
+    }
+  }
 }
 
 module cage_bar_segments() {
@@ -270,8 +329,8 @@ module glans_cap() {
 }
 
 module cage_lock() {
-  // Create the solid arc that interfaces with the mating parts
-  mount_arc();
+  // Create the solid arc that interfaces with the mating parts (the flat cap's wall does this job itself)
+  if (!flat_top) mount_arc();
   // Create the flat plane on which the mating parts slide
   mount_flat();
   // Create the cage's piece of the lock
@@ -349,15 +408,16 @@ module mount_arc(arcLength=60) {
 module mount_flat() {
   dz(-r3) skewxz(tan(tilt)) difference() {
     translate([-R1-r3-mount_width/2, -mount_length/2, 0]) rounded_cube([mount_width, mount_length, mount_height*cos(tilt)+r3], rounding);
-    cylinder(r=R1+r3, h=100);
+    // For the full cage, keep the block outside the cage ring; the flat cap's block is a plain slab joined to the wall
+    if (!flat_top) cylinder(r=R1+r3, h=100);
   }
 }
 
 module base_ring() {
-  if (wavyBase) {
-    dz(-gap) dx(R2+r2-R1-r1-gap*tan(tilt)) wavy_torus(R2+r2, r2, waveAngle);
+  if (wavy_base) {
+    dz(-gap) dx(R2+r2-R1-r1-gap*tan(tilt)) wavy_torus(R2+r2, r2, wave_angle);
   } else {
-    dz(-gap) dx(R2+r2-R1-r1-gap*tan(tilt)) profile_torus(R2+r2, r2, base_ring_roundness);
+    dz(-gap) dx(R2+r2-R1-r1-gap*tan(tilt)) profile_torus(R2+r2, 2*r2, 2*r2, base_ring_roundness);
   }
 }
 
