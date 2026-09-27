@@ -38,3 +38,18 @@ module torus(R, r, phi=360, rounded=false, center=false) {
     }
   }
 }
+
+// Cross-section between a square (roundness=0) and a circle (roundness=1) of the same width 2r
+module ring_profile(r, roundness) {
+  k = max(min(roundness, 1), 0)*r;
+  if (k < 0.01) {
+    square(2*r, center=true);
+  } else {
+    hull() for (x = [-1, 1], y = [-1, 1]) translate([x, y]*(r-k)) circle(k);
+  }
+}
+
+// Torus with a ring_profile() cross-section
+module profile_torus(R, r, roundness=1, phi=360) {
+  rotate_extrude(convexity=4, angle=phi) translate([R, 0]) ring_profile(r, roundness);
+}

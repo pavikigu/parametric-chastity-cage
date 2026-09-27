@@ -18,8 +18,8 @@
 // Use abbreviations for translate() and rotate() operations
 use <handyfunctions.scad>
 
-// Use separate module for stealth lock shape
-use <stealth_lock.scad>
+// Use separate module for the lock shape (modelled in Fusion 360)
+use <fusion_lock.scad>
 
 // Use separate module for torus functions
 use <torus.scad>
@@ -42,8 +42,12 @@ base_ring_diameter=45; // [30:55]
 // Thickness of base ring 
 base_ring_thickness=6; // [6:10]
 
+// Cross-section of the base rings: 0 = square (easier to print), 1 = round (torus). The wavy base ring is always round.
+// Edge radius is base_ring_roundness * base_ring_thickness/2 on both rings; 0.33 matches the lock block's rounding at thickness 6
+base_ring_roundness = 0.33; // [0:0.01:1]
+
 // Add a "wave" to the base ring (contours to the body a little better)
-wavyBase = 1; // [0: Flat, 1: Wavy]
+wavyBase = 0; // [0: Flat, 1: Wavy]
 
 // If the base ring has a wave, set the angle of the wave
 waveAngle = 12; // [0:45]
@@ -65,6 +69,15 @@ tilt=15; // [0:30]
 
 // If your lock fits too tightly in the casing, add some space around it here
 lock_margin = 0.1; // [0:0.01:1]
+
+// How deep the key face of the lock sits below the surface of the case
+lock_key_depth = 1.5; // [0:0.1:4]
+
+// Direction the lock core turns, seen from the key side
+lock_clockwise = 1; // [1: Clockwise, 0: Counterclockwise]
+
+// Show the lock in place (preview only)
+show_lock = 0; // [0: No, 1: Unlocked, 2: Locked]
 
 // If the two parts slide too stiffly, add some space here
 part_margin = 0.2; // [0:0.01:1]
@@ -125,6 +138,8 @@ cage_length = max(penis_length-gap, glans_cage_height+(R1+r1)*sin(tilt));
 lock_vertical = mount_height/2+1.5;
 // Horizontal placement of lock hole
 lock_lateral = 5.6;
+// Angle the lock core turns
+lock_turn = 45;
 
 // P: bend point (assumed to be on the XZ plane)
 // dP: distance from origin to bend point
@@ -153,12 +168,15 @@ R = ry(Q-P, Phi) + P;
 //
 // Finally, here's where the modules begin
 //
-$fn=32;
+// Facet resolution: max angle and max length of a facet (coarser in preview for speed)
+$fa = $preview ? 6 : 2;
+$fs = $preview ? 1 : 0.4;
 make();
 
 module make() {
   cage();
   make_base();
+  if (show_lock) %lock_position() fusion_lock_body(show_lock == 2 ? lock_turn : 0, lock_clockwise);
 }
 
 module make_base() {
@@ -194,7 +212,7 @@ module rounded_cube(size, radius, center=false) {
 module cage() {
   cage_bar_segments(); // The bars
   glans_cap(); // The cap
-  torus(R1+r1, r3);  // Cage base ring
+  profile_torus(R1+r1, r3, base_ring_roundness*r2/r3);  // Cage base ring, same edge radius as the base ring
   cage_lock(); // The part where the lock goes
 }
 
@@ -267,10 +285,7 @@ module lock_dovetail_inner() {
     // Ensure the lock body does not enter the cage itself
     dz(-r3) skewxz(tan(tilt)) cylinder(r=R1+r3, h=100, center=true);
     // Cut a cavity for the lock module
-    dx(-R1-r3-mount_width/2-lock_lateral) ry(tilt) dz(lock_vertical) dy(19-mount_length/2) {
-      stealth_lock(lock_margin);
-      rx(-90) cylinder(r=3.1+lock_margin, h=mount_length-19);
-    }
+    lock_cavity();
   }
 }
 
@@ -282,10 +297,7 @@ module lock_dovetail_outer() {
         my() dy(mount_length/3) lock_case_shape(mount_length/3, outer=true);
       }
       // Cut a cavity for the lock module
-      sy(1.01) dx(-R1-r3-mount_width/2-lock_lateral) ry(tilt) dz(lock_vertical) dy(19-mount_length/2) {
-        stealth_lock(lock_margin);
-        rx(-90) cylinder(r=3.1+lock_margin, h=mount_length-19);
-      }
+      lock_cavity();
     }
     union() {
        dz(-r3) skewxz(tan(tilt)) dz(-r3) mx() dx(R1+r3+mount_width/2 + part_margin) dy(-mount_length/2) rounded_cube([50, mount_length/3, mount_height*cos(tilt)+2*r3], rounding);
@@ -298,6 +310,15 @@ module lock_dovetail_outer() {
     dz(-gap) dx(-R1-r3-gap*sin(tilt)) rx(90) cylinder(r=r3/2, h=mount_length, center=true);
     dx(R2+2*r2-R1-r3-r2-gap*sin(tilt)) dz(-gap) rz(165) torus(R2+2*r2, r3/2, 30);
   }
+}
+
+// Place the lock: axis along Y, key face toward +Y, recessed lock_key_depth below the case surface
+module lock_position() {
+  dx(-R1-r3-mount_width/2-lock_lateral) ry(tilt) dz(lock_vertical) dy(mount_length/2-lock_key_depth) rz(90) children();
+}
+
+module lock_cavity() {
+  lock_position() fusion_lock_cavity(lock_margin, lock_turn, lock_clockwise, ext=lock_key_depth+5);
 }
 
 // A hull of four rounded cylinders to create the main lock body. It extends down a bit more for the outer lock piece
@@ -336,7 +357,7 @@ module base_ring() {
   if (wavyBase) {
     dz(-gap) dx(R2+r2-R1-r1-gap*tan(tilt)) wavy_torus(R2+r2, r2, waveAngle);
   } else {
-    dz(-gap) dx(R2+r2-R1-r1-gap*tan(tilt)) torus(R2+r2, r2);
+    dz(-gap) dx(R2+r2-R1-r1-gap*tan(tilt)) profile_torus(R2+r2, r2, base_ring_roundness);
   }
 }
 
